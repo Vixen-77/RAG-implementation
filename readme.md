@@ -1,24 +1,21 @@
-**installing dependesises**
-# Dans le  projet afin d'installer toute les dependance n'essaire 
- dans le fichier  requirement.txt se trouve toute les dependance a installer executer la commande suivante 
-
-pip install -r requirements.txt
-
-pour l'instalation du model voici un lien vert l'instalation du SetUp Llaulma 
-https://ollama.com/library/llama3.2:1b
-
-# instruction du choix du model
-
-apres instalation de Setup Ollama choisissez : 
-
-le model Gamma 3:1B   (exelent choix et léger et vif) l'esser le se telecharger et tester en envoyant des petit ptompte si sa marche 
+# RAG-Implementation
 
 
-execute the code llm_service.py just to see if the LLM is responding 
+> Pour le moment, le dépôt est encore vide, à l'exception du fichier **`llm_service.py`** qui a été créé uniquement pour tester le modèle **Gamma3.py**.
 
+---
 
-# Next step
+## Fichiers présents
 
-we code alll files that u see here all the API gonna do the work 
+- **`llm_service.py`** : script Python servant à tester le modèle Gamma3.
 
-(vous pouvez choisir un model plus gourment a condition que vous avez un GPU puissant intéguré)
+- **`requirements.txt`** : liste complète des bibliothèques Python nécessaires au projet.
+
+---
+
+## Installation des dépendances
+
+Pour installer toutes les bibliothèques nécessaires, exécutez la commande suivante dans votre terminal :
+
+```bash
+pip install -r requirement.txt
