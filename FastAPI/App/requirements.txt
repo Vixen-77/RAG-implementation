@@ -1,0 +1,42 @@
+# ========== FastAPI & Server ==========
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart==0.0.12
+
+# ========== RAG & Vector Database ==========
+langchain==0.3.7
+langchain-community==0.3.5
+langchain-core==0.3.15
+langchain-text-splitters==0.3.2
+langchain-chroma==0.1.4
+langchain-huggingface==0.1.2
+chromadb==0.5.20
+
+# ========== Embeddings ==========
+sentence-transformers==3.3.1
+huggingface-hub==0.26.2
+tokenizers==0.21.0
+
+# ========== Document Processing ==========
+PyMuPDF==1.24.13
+unstructured==0.16.9
+unstructured-inference==0.7.36
+beautifulsoup4==4.12.3
+lxml==5.3.0
+
+# ========== Image Processing ==========
+pillow==11.0.0
+python-magic-bin==0.4.14  # Windows only
+
+# ========== LLM Integration ==========
+requests==2.32.3
+
+# ========== Utilities ==========
+pydantic==2.10.3
+pydantic-settings==2.6.1
+python-dotenv==1.0.1
+numpy==1.26.4
+
+# ========== Development/Testing ==========
+pytest==8.3.4
+pytest-asyncio==0.24.0
