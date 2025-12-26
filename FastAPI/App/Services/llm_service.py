@@ -5,8 +5,8 @@ import time
 
 # --- Configuration ---
 OLLAMA_URL = "http://localhost:11434/api/generate"
-TEXT_MODEL = "qwen3-vl:4b"
-VISION_MODEL = "qwen3-vl:4b"
+TEXT_MODEL = "llama3.2"
+VISION_MODEL = "llava-phi3"
 
 def call_ollama(prompt: str, model: str, image_path: str = None) -> str:
     start_time = time.time()
@@ -23,8 +23,8 @@ def call_ollama(prompt: str, model: str, image_path: str = None) -> str:
         "stream": False,
         "options": {
             "temperature": 0.2,  
-            "num_ctx": 2048,        
-            "num_predict": 300,     
+            "num_ctx": 4096,        
+            "num_predict": 500,     
             "top_p": 0.9,
             "top_k": 20
         }

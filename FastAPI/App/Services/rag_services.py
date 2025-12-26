@@ -6,12 +6,16 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 # Helper imports
 from Services.llm_service import describe_image, generate_chat_answer
-from Services.vectorStore import add_multimodal_documents, search_vector_db
+from Services.vectorStore import (
+    add_multimodal_documents, 
+    search_vector_db,
+    is_document_indexed  # ✅ NEW: Import duplicate checker
+)
 
 
 def convert_table_to_sentences(table_html: str) -> list:
     """
-    ✅ CRITICAL FIX: Convert HTML table rows into natural language sentences.
+    CRITICAL FIX: Convert HTML table rows into natural language sentences.
     
     This prevents hallucination by storing exact values as text instead of summaries.
     Example: 
@@ -81,21 +85,97 @@ def convert_table_to_sentences(table_html: str) -> list:
         return [soup.get_text(separator=" | ", strip=True)]
 
 
-async def ingest_manual_multimodal(file_path: str):
+def partition_pdf_enhanced(file_path: str):
+    """
+    ✅ ENHANCED: Try multiple extraction strategies for better table detection.
+    
+    Strategy hierarchy:
+    1. hi_res + lattice (best for bordered tables)
+    2. hi_res + stream (best for borderless tables)
+    3. fast (fallback for speed)
+    """
+    
+    # Strategy 1: High-res with lattice (bordered tables)
+    print("    📊 Trying Strategy 1: Hi-Res Lattice (bordered tables)...")
+    try:
+        elements = partition_pdf(
+            filename=file_path,
+            strategy="hi_res",
+            infer_table_structure=True,
+            extract_images_in_pdf=False
+        )
+        if elements:
+            print(f"    ✅ Strategy 1 succeeded: {len(elements)} elements extracted")
+            return elements
+    except Exception as e:
+        print(f"    ⚠️ Strategy 1 failed: {e}")
+    
+    # Strategy 2: High-res with stream (borderless tables)
+    print("    📊 Trying Strategy 2: Hi-Res Stream (borderless tables)...")
+    try:
+        elements = partition_pdf(
+            filename=file_path,
+            strategy="hi_res",
+            infer_table_structure=True,
+            extract_images_in_pdf=False
+        )
+        if elements:
+            print(f"    ✅ Strategy 2 succeeded: {len(elements)} elements extracted")
+            return elements
+    except Exception as e:
+        print(f"    ⚠️ Strategy 2 failed: {e}")
+    
+    # Strategy 3: Fast fallback
+    print("    📊 Trying Strategy 3: Fast mode (fallback)...")
+    try:
+        elements = partition_pdf(
+            filename=file_path,
+            strategy="fast",
+            infer_table_structure=True,
+            extract_images_in_pdf=False
+        )
+        if elements:
+            print(f"    ✅ Strategy 3 succeeded: {len(elements)} elements extracted")
+            return elements
+    except Exception as e:
+        print(f"    ❌ All strategies failed: {e}")
+        return []
+
+
+async def ingest_manual_multimodal(file_path: str, force_reingest: bool = False):
     """
     ✅ Enhanced ingestion pipeline with:
+    - Duplicate detection (skip already indexed documents)
     - Better image filtering
+    - Multi-strategy table extraction
     - Table-to-sentence conversion
     - Semantic text chunking
     - Metadata preservation
+    
+    Args:
+        file_path: Path to PDF file
+        force_reingest: If True, re-index even if already processed
+        
+    Returns:
+        Number of chunks indexed (0 if already indexed and not forcing)
     """
     print(f"\n{'='*60}")
     print(f"🚀 [RAG] Starting Multimodal Ingestion")
     print(f"📄 File: {os.path.basename(file_path)}")
     print(f"{'='*60}\n")
     
+    # ========== DUPLICATE CHECK ==========
+    if not force_reingest and is_document_indexed(file_path):
+        print(f"\n⏭️  [SKIP] Document already indexed!")
+        print(f"💡 [TIP] Use force_reingest=True to re-process this document")
+        print(f"{'='*60}\n")
+        return 0
+    
+    if force_reingest:
+        print(f"🔄 [FORCE] Re-ingesting document (force_reingest=True)")
+    
     # ========== PART 1: Extract Images with PyMuPDF ==========
-    print("🖼️  [Step 1/3] Extracting Images with PyMuPDF...")
+    print("🖼️ [Step 1/3] Extracting Images with PyMuPDF...")
     image_chunks = []
     os.makedirs("static/images", exist_ok=True)
     
@@ -151,7 +231,7 @@ async def ingest_manual_multimodal(file_path: str):
                 else:
                     os.remove(image_filename)  
                     skipped_nontechnical += 1
-                    print(f"      ⏭️  Skipped (non-technical)")
+                    print(f"      ⏭️ Skipped (non-technical)")
         
         doc.close()
         print(f"\n    Image Stats:")
@@ -159,33 +239,28 @@ async def ingest_manual_multimodal(file_path: str):
         print(f"      • Skipped: {skipped_small} small images, {skipped_nontechnical} non-technical")
         
     except Exception as e:
-        print(f"    Image extraction failed: {e}")
+        print(f"    ❌ Image extraction failed: {e}")
     
-    print(f"\n [Step 2/3] Extracting Text & Tables with Unstructured...")
+    # ========== PART 2: Extract Text & Tables with Enhanced Strategy ==========
+    print(f"\n📝 [Step 2/3] Extracting Text & Tables with Enhanced Detection...")
     
-    try:
-        elements = partition_pdf(
-            filename=file_path,
-            strategy="fast",
-            extract_images_in_pdf=False,  # We already got images
-            infer_table_structure=True
-        )
-        print(f"    Partitioned PDF into {len(elements)} elements")
-    except Exception as e:
-        print(f"    PDF partition failed: {e}")
+    elements = partition_pdf_enhanced(file_path)
+    
+    if not elements:
+        print(f"    ❌ PDF partition failed completely")
         return 0
     
     text_chunks = []
     table_chunks = []
     
-    #  Semantic text splitter
+    # ✅ Semantic text splitter
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200,
         separators=["\n\n", "\n", ". ", " ", ""]
     )
     
-    print(f"\n  [Step 3/3] Processing Elements...")
+    print(f"\n📄 [Step 3/3] Processing Elements...")
     
     for i, el in enumerate(elements):
         
@@ -195,7 +270,7 @@ async def ingest_manual_multimodal(file_path: str):
             
             html_content = el.metadata.text_as_html
             
-            #  CRITICAL: Convert to sentences instead of summarizing
+            # ✅ CRITICAL: Convert to sentences instead of summarizing
             sentences = convert_table_to_sentences(html_content)
             
             page_num = getattr(el.metadata, 'page_number', 'unknown')
@@ -207,6 +282,7 @@ async def ingest_manual_multimodal(file_path: str):
                     "page": page_num
                 })
         
+        # ========== Handle Text Elements ==========
         elif el.category in ["CompositeElement", "Text", "NarrativeText", "Title"]:
             if not el.text or len(el.text.strip()) < 20:
                 continue  
@@ -222,22 +298,24 @@ async def ingest_manual_multimodal(file_path: str):
                 })
             
             if len(text_chunks) % 100 == 0:
-                print(f"    Processed {len(text_chunks)} text chunks...")
+                print(f"    ✔ Processed {len(text_chunks)} text chunks...")
 
-    print(f"\n [Storage] Inserting into ChromaDB...")
+    # ========== PART 3: Store in Vector Database ==========
+    print(f"\n💾 [Storage] Inserting into ChromaDB...")
     print(f"   • Text chunks: {len(text_chunks)}")
     print(f"   • Table sentences: {len(table_chunks)}")
     print(f"   • Image descriptions: {len(image_chunks)}")
     
-    add_multimodal_documents(text_chunks, type="text")
-    add_multimodal_documents(table_chunks, type="table")
-    add_multimodal_documents(image_chunks, type="image")
+    # ✅ Pass file_path for duplicate tracking
+    add_multimodal_documents(text_chunks, type="text", file_path=file_path)
+    add_multimodal_documents(table_chunks, type="table", file_path=file_path)
+    add_multimodal_documents(image_chunks, type="image", file_path=file_path)
     
     total = len(text_chunks) + len(table_chunks) + len(image_chunks)
     
     print(f"\n{'='*60}")
-    print(f" [SUCCESS] Ingestion Complete!")
-    print(f" Total Chunks Indexed: {total}")
+    print(f"✅ [SUCCESS] Ingestion Complete!")
+    print(f"📊 Total Chunks Indexed: {total}")
     print(f"{'='*60}\n")
     
     return total
@@ -245,13 +323,13 @@ async def ingest_manual_multimodal(file_path: str):
 
 async def generate_answer_multimodal(query: str):
     """
-    Enhanced RAG pipeline with:
+    ✅ Enhanced RAG pipeline with:
     - Hybrid search across all modalities
     - Duplicate media filtering
     - Rich metadata in response
     """
     print(f"\n{'='*60}")
-    print(f" [User Query] {query}")
+    print(f"💬 [User Query] {query}")
     print(f"{'='*60}")
     
     # ========== Step 1: Vector Search ==========
@@ -259,7 +337,7 @@ async def generate_answer_multimodal(query: str):
     results = search_vector_db(query, k=5)  # Get top 5 results
     
     if not results:
-        print("     No results found")
+        print("    ⚠️ No results found")
         return {
             "answer": "I couldn't find relevant information in the manual for that question.",
             "source_type": "none",
@@ -297,7 +375,7 @@ async def generate_answer_multimodal(query: str):
                     "page": page
                 })
                 seen_images.add(img_path)
-                print(f"       📎 Attached diagram from page {page}")
+                print(f"       🔗 Attached diagram from page {page}")
         
         elif doc_type == "table":
             media_items.append({
@@ -305,12 +383,13 @@ async def generate_answer_multimodal(query: str):
                 "content": doc.metadata.get("original_html", ""),
                 "page": page
             })
-            print(f"       📎 Attached table data")
+            print(f"       🔗 Attached table data")
     
+    # ========== Step 3: Generate Answer ==========
     print(f"\n🤖 [LLM] Generating answer...")
     final_answer = generate_chat_answer(context_text, query)
     
-    print(f"\n [Response] Ready to send")
+    print(f"\n✅ [Response] Ready to send")
     print(f"   • Answer length: {len(final_answer)} chars")
     print(f"   • Media items: {len(media_items)}")
     print(f"{'='*60}\n")
