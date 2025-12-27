@@ -6,7 +6,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 # Import your services
 from Services.rag_services import ingest_manual_multimodal, generate_answer_multimodal
@@ -50,27 +50,31 @@ DEMO_QUERIES = {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    ✅ Enhanced startup with duplicate prevention and better error handling.
-    """
+    """✅ Enhanced startup with duplicate prevention and better error handling."""
     print("\n" + "="*70)
     print("🚀 MECANIC-IA SYSTEM STARTING")
     print("="*70)
-    
+
     # Startup logic
     if not os.path.exists(DATA_FOLDER):
-        print(f"⚠️  [Startup] Folder '{DATA_FOLDER}' missing. Creating it.")
+        print(f"⚠️ [Startup] Folder '{DATA_FOLDER}' missing. Creating it.")
         os.makedirs(DATA_FOLDER)
-    
+
     # Show current database state
     print("\n📊 [Startup] Checking existing database...")
     stats = get_collection_stats()
-    
+
     # Auto-ingest PDFs from Data folder
     pdf_files = glob.glob(os.path.join(DATA_FOLDER, "*.pdf"))
     
+    # ✅ Initialize counters BEFORE the loop
+    new_files_count = 0
+    total_chunks_added = 0
+    processed_count = 0
+    skipped_count = 0
+
     if not pdf_files:
-        print(f"\nℹ️  [Startup] No PDFs found in '{DATA_FOLDER}' folder.")
+        print(f"\nℹ️ [Startup] No PDFs found in '{DATA_FOLDER}' folder.")
         print(f"💡 [Tip] Place your vehicle manuals in the '{DATA_FOLDER}' folder or use /ingest endpoint")
     else:
         print(f"\n📚 [Startup] Found {len(pdf_files)} manual(s) in '{DATA_FOLDER}':")
@@ -78,52 +82,61 @@ async def lifespan(app: FastAPI):
             print(f"   • {os.path.basename(pdf)}")
         
         print(f"\n⏳ [Startup] Beginning auto-ingestion check...\n")
-        
-        total_new_chunks = 0
-        processed_count = 0
-        skipped_count = 0
-        
+
         for pdf_path in pdf_files:
             try:
                 print(f"{'─'*70}")
                 print(f"📄 Checking: {os.path.basename(pdf_path)}")
                 print(f"{'─'*70}")
                 
-                # ✅ KEY FIX: ingest_manual_multimodal now returns 0 if already indexed
-                num_chunks = await ingest_manual_multimodal(pdf_path, force_reingest=False)
+                # Ingest (returns dict with status and chunks)
+                result = await ingest_manual_multimodal(pdf_path, force_reingest=False)
                 
-                if num_chunks > 0:
-                    total_new_chunks += num_chunks
+                # ✅ Handle result properly
+                if isinstance(result, dict):
+                    chunks_added = result.get("chunks", 0)
+                    status = result.get("status", "unknown")
+                else:
+                    # Fallback for integer return
+                    chunks_added = result if isinstance(result, int) else 0
+                    status = "processed" if chunks_added > 0 else "skipped"
+
+                if status == "skipped":
+                    skipped_count += 1
+                    print(f"   ⏭️ Skipped (Already indexed).")
+                elif chunks_added > 0:
+                    new_files_count += 1
+                    total_chunks_added += chunks_added
                     processed_count += 1
-                    print(f"✅ Processed: {os.path.basename(pdf_path)} ({num_chunks} chunks)\n")
+                    print(f"   ✅ Indexed {chunks_added} new chunks.")
                 else:
                     skipped_count += 1
-                    print(f"⏭️  Skipped: {os.path.basename(pdf_path)} (already indexed)\n")
-                
+                    print(f"   ⚠️ No chunks extracted.")
+                    
             except Exception as e:
                 print(f"❌ [Startup] Failed to process {os.path.basename(pdf_path)}: {str(e)}")
                 import traceback
                 traceback.print_exc()
-        
+
         print(f"\n{'='*70}")
         print(f"🎉 AUTO-INGESTION COMPLETE")
         print(f"📊 Summary:")
         print(f"   • New documents processed: {processed_count}")
         print(f"   • Already indexed (skipped): {skipped_count}")
-        print(f"   • New chunks added: {total_new_chunks}")
+        print(f"   • New chunks added: {total_chunks_added}")
         print(f"{'='*70}")
-    
+
     # Show final collection stats
     print("\n📊 [Startup] Final Database State:")
     final_stats = get_collection_stats()
-    
+
     print(f"\n✅ [Startup] API is ready!")
     print(f"📖 Documentation: http://localhost:8000/docs")
     print(f"🎬 Demo scenarios: http://localhost:8000/demos")
     print(f"{'='*70}\n")
-
+    
     yield
-
+    
     # Shutdown logic
     print("\n" + "="*70)
     print("🛑 MECANIC-IA SHUTTING DOWN")
@@ -156,11 +169,13 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 class ChatRequest(BaseModel):
     query: str
 
+# ✅ FIXED: Match the actual response structure
 class ChatResponse(BaseModel):
     answer: str
-    source_type: str
-    media_content: Optional[List[dict]] = None
-    num_sources: Optional[int] = 0
+    sources: List[Any] = []  # LangChain Documents (converted to dict by FastAPI)
+    media: Optional[List[Dict[str, Any]]] = []
+    routing_info: Optional[Dict[str, Any]] = {}
+    num_sources: int = 0
 
 class IngestResponse(BaseModel):
     message: str
@@ -173,9 +188,7 @@ class IngestResponse(BaseModel):
 
 @app.get("/")
 def read_root():
-    """
-    Health check endpoint
-    """
+    """Health check endpoint"""
     stats = get_collection_stats()
     return {
         "status": "✅ System operational",
@@ -188,9 +201,7 @@ def read_root():
 
 @app.get("/demos")
 def list_demos():
-    """
-    ✅ List available demo scenarios for testing
-    """
+    """✅ List available demo scenarios for testing"""
     return {
         "available_demos": [
             {"id": key, "description": val["description"], "endpoint": f"/demo/{key}"}
@@ -226,6 +237,8 @@ async def run_demo(demo_id: str):
         
     except Exception as e:
         print(f"❌ [Demo] Error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -257,9 +270,18 @@ async def upload_manual(file: UploadFile = File(...), force_reingest: bool = Fal
         print(f"✅ [API] File saved to {file_location}")
         
         # Ingest the manual
-        num_chunks = await ingest_manual_multimodal(file_location, force_reingest=force_reingest)
+        result = await ingest_manual_multimodal(file_location, force_reingest=force_reingest)
         
-        if num_chunks == 0:
+        # ✅ Handle result properly
+        if isinstance(result, dict):
+            num_chunks = result.get("chunks", 0)
+            status = result.get("status", "unknown")
+            already_indexed = (status == "skipped")
+        else:
+            num_chunks = result if isinstance(result, int) else 0
+            already_indexed = (num_chunks == 0)
+        
+        if already_indexed:
             return IngestResponse(
                 message="⏭️ Manual already indexed (use force_reingest=true to re-process)",
                 filename=file.filename,
@@ -283,9 +305,7 @@ async def upload_manual(file: UploadFile = File(...), force_reingest: bool = Fal
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
-    """
-    Main chat endpoint - query the vehicle manual
-    """
+    """Main chat endpoint - query the vehicle manual"""
     print(f"\n💬 [API] Chat request received")
     
     if not request.query or len(request.query.strip()) < 3:
@@ -296,6 +316,17 @@ async def chat_endpoint(request: ChatRequest):
     
     try:
         response_data = await generate_answer_multimodal(request.query)
+        
+        # ✅ Convert LangChain Documents to dicts for JSON serialization
+        if "sources" in response_data:
+            response_data["sources"] = [
+                {
+                    "content": doc.page_content if hasattr(doc, 'page_content') else str(doc),
+                    "metadata": doc.metadata if hasattr(doc, 'metadata') else {}
+                }
+                for doc in response_data["sources"]
+            ]
+        
         return ChatResponse(**response_data)
         
     except Exception as e:
@@ -307,16 +338,14 @@ async def chat_endpoint(request: ChatRequest):
 
 @app.get("/stats")
 def get_stats():
-    """
-    Get vector database statistics
-    """
+    """Get vector database statistics"""
     return get_collection_stats()
 
 
 @app.delete("/reset")
 def reset_database(confirm: bool = False):
     """
-    ⚠️  WARNING: Clear all data from vector database
+    ⚠️ WARNING: Clear all data from vector database
     Requires confirm=true parameter for safety
     """
     if not confirm:
@@ -342,6 +371,6 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,  # Auto-reload on code changes
+        reload=True,
         log_level="info"
     )

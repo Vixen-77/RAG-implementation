@@ -1,40 +1,49 @@
-# ========== FastAPI & Server ==========
-fastapi==0.115.0
-uvicorn[standard]==0.32.0
-python-multipart==0.0.12
+# ============================================================================
+# MECANIC-IA RAG SYSTEM - Python Dependencies
+# ============================================================================
 
-# ========== RAG & Vector Database ==========
-langchain==0.3.7
-langchain-community==0.3.5
-langchain-core==0.3.15
-langchain-text-splitters==0.3.2
-langchain-chroma==0.1.4
-langchain-huggingface==0.1.2
-chromadb==0.5.20
+# Core Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
 
-# ========== Embeddings ==========
-sentence-transformers==3.3.1
-huggingface-hub==0.26.2
-tokenizers==0.21.0
+# PDF Processing
+PyMuPDF==1.23.8  # fitz - PDF text and image extraction
 
-# ========== Document Processing ==========
-PyMuPDF==1.24.13
-unstructured==0.16.9
+# HTML/XML Parsing
 beautifulsoup4==4.12.3
-lxml==5.3.0
+lxml==5.1.0
 
-# ========== Image Processing ==========
-pillow==11.0.0
+# Vector Database & Embeddings
+chromadb==0.4.22
+langchain==0.1.5
+langchain-chroma==0.1.0
+langchain-huggingface==0.0.1
+langchain-core==0.1.23
 
-# ========== LLM Integration ==========
-requests==2.32.3
+# Hugging Face Embeddings & Reranking
+sentence-transformers==2.3.1
+transformers==4.37.2
 
-# ========== Utilities ==========
-pydantic==2.10.3
-pydantic-settings==2.6.1
-python-dotenv==1.0.1
-numpy==1.26.4
+# HTTP Requests (for Ollama API)
+requests==2.31.0
 
-# ========== Development/Testing ==========
-pytest==8.3.4
-pytest-asyncio==0.24.0.0
+# Async Support
+asyncio==3.4.3
+
+# Data Processing
+numpy==1.26.3
+
+# Optional: GPU Acceleration (if you have NVIDIA GPU)
+# torch==2.1.2+cu121  # Uncomment and adjust CUDA version if needed
+# If no GPU, use CPU version:
+torch==2.1.2
+
+# Utilities
+python-dotenv==1.0.0  # For environment variables (optional)
+pydantic==2.5.3  # Data validation (included with FastAPI but specified for clarity)
+
+# Development Tools (Optional)
+# pytest==7.4.4  # For testing
+# black==24.1.1  # Code formatting
+# pylint==3.0.3  # Code linting
