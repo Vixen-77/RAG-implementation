@@ -1,12 +1,7 @@
-"""
-Relevance & Hallucination Graders
-Prevent hallucinations by:
-- validating retrieval quality
-- checking if the final answer is grounded in docs
-"""
+
 
 from typing import List, Dict, Any
-from Services.llm_service import call_ollama
+from services.llm.client import call_ollama
 
 
 def _safe_upper(text: str) -> str:
@@ -14,16 +9,7 @@ def _safe_upper(text: str) -> str:
 
 
 def grade_context_relevance(query: str, context: str) -> Dict[str, Any]:
-    """
-    Grade whether the retrieved context can answer the query.
-
-    Returns:
-        {
-            "relevant": bool,
-            "reasoning": str,
-            "confidence": str  # "HIGH", "MEDIUM", "LOW"
-        }
-    """
+  
     # VERY strict for car manuals
     prompt = f"""You are a strict quality checker for a car manual diagnostic assistant.
 
@@ -80,16 +66,7 @@ REASONING: One sentence explaining why.
 
 
 def grade_hallucination(documents: List[Any], generation: str) -> Dict[str, Any]:
-    """
-    Check if the generation is grounded in the documents.
-
-    Returns:
-        {
-            "grounded": bool,
-            "reasoning": str,
-            "confidence": str
-        }
-    """
+   
     context = "\n\n".join(
         getattr(doc, "page_content", str(doc)) for doc in documents
     )
@@ -144,16 +121,7 @@ REASONING: One sentence explaining why.
 
 
 def grade_answer_question(question: str, generation: str) -> Dict[str, Any]:
-    """
-    Check if the generation addresses the question.
-
-    Returns:
-        {
-            "useful": bool,
-            "reasoning": str,
-            "confidence": str
-        }
-    """
+   
     prompt = f"""You are a grader for a car manual assistant. Check if the GENERATION answers the QUESTION.
 
 QUESTION:
