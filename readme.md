@@ -7,7 +7,6 @@
 *   **⚡ Parent-Child Retrieval**: Preserves document context by indexing small "child" chunks for search but retrieving full "parent" sections for the LLM.
 *   **🖼️ Multimodal Vision**: Automatically extracts images from PDFs, captions them using a local Vision LLM (`llava-phi3`), and makes them searchable alongside text.
 *   **🧠 Local & Private**: Powered entirely by **Ollama** (Llama 3.2 for text, LLaVA for vision) ensuring data privacy.
-*   **🧩 Modular Architecture**: Built with a clean, standard FastAPI structure (`core`, `api`, `services`).
 *   **🔍 Hybrid Search**: Combines dense vector retrieval (ChromaDB) with Cross-Encoder reranking for high accuracy.
 
 ---
