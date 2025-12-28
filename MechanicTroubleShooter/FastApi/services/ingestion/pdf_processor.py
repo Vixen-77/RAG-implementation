@@ -1,5 +1,5 @@
 
-import fitz  # PyMuPDF
+import fitz  
 from typing import List, Dict, Any
 
 def extract_text_pages(pdf_path: str) -> List[Dict[str, Any]]:

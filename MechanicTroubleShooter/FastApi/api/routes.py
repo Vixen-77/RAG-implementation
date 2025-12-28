@@ -4,7 +4,7 @@ from typing import List, Dict, Any
 import os
 import shutil
 
-from core.config import DATA_FOLDER, CHROMA_PERSIST_DIR, DEMO_QUERIES
+from core.config import DATA_FOLDER, CHROMA_PERSIST_DIR
 from schemas.models import ChatRequest, ChatResponse, IngestResponse, StatsResponse
 from services import get_collection_stats, clear_database, get_docstore, ParentChildRAG
 
@@ -35,27 +35,6 @@ def read_root(request: Request):
         "database_stats": {**stats, "docstore": doc_stats.get("total_parents", 0)}
     }
 
-
-
-@router.get("/demo/{demo_id}")
-async def run_demo(demo_id: str, request: Request):
-    rag = get_rag_system(request)
-    if demo_id not in DEMO_QUERIES or not rag:
-        raise HTTPException(503, "Demo unavailable or system not ready")
-    
-    demo = DEMO_QUERIES[demo_id]
-    print(f"[DEMO] Running: {demo['description']}")
-    
-    try:
-        res = rag.query(demo["query"], k=10)
-        return {
-            "answer": res.get("answer"),
-            "sources": [{"content": d.page_content[:200], "meta": d.metadata} for d in res.get("sources", [])],
-            "demo_id": demo_id
-        }
-    except Exception as e:
-        print(f"[ERROR] Demo failed: {e}")
-        raise HTTPException(500, str(e))
 
 @router.post("/ingest", response_model=IngestResponse)
 async def upload_manual(request: Request, file: UploadFile = File(...), force_reingest: bool = False):
@@ -128,6 +107,12 @@ async def chat_stream(request: Request, chat_req: ChatRequest):
     routing = route_query(chat_req.query, history)
     decision = routing["decision"]
     
+    # Force RAG for visual queries (images, diagrams, etc.)
+    visual_keywords = ["show", "diagram", "picture", "image", "photo", "location", "look like", "see", "where is"]
+    is_visual = any(k in chat_req.query.lower() for k in visual_keywords)
+    if is_visual and decision == QueryRoute.DIRECT_ANSWER:
+        print(f"[ROUTER] Visual query detected, overriding to RAG_NEEDED")
+        decision = QueryRoute.RAG_NEEDED
 
     if decision == QueryRoute.DIRECT_ANSWER:
         async def direct_response():
@@ -169,10 +154,16 @@ async def chat_stream(request: Request, chat_req: ChatRequest):
         from services.retrieval.hybrid_search import hybrid_search
         from services.retrieval.reranker import rerank_results
         
-        is_visual = rag._is_visual_query(query_to_use)
+        # Check visual intent on ORIGINAL query (before reformulation strips keywords)
+        is_visual = rag._is_visual_query(chat_req.query)
+        print(f"[API] is_visual={is_visual} for query: {chat_req.query[:50]}...")
         
         # Stage 1: Hybrid Search (Vector + BM25)
         child_docs = hybrid_search(query_to_use, k=chat_req.k * 3, include_images=is_visual)
+        
+        # Track images after hybrid search
+        img_count_hybrid = sum(1 for d in child_docs if d.metadata.get('type') == 'image')
+        print(f"[API] After hybrid: {len(child_docs)} docs ({img_count_hybrid} images)")
         
         if not child_docs:
             async def no_results():
@@ -184,15 +175,47 @@ async def chat_stream(request: Request, chat_req: ChatRequest):
         # Deduplicate
         unique_docs = rag._deduplicate_aggressively(child_docs)
         
+        # Track images after dedup
+        img_count_dedup = sum(1 for d in unique_docs if d.metadata.get('type') == 'image')
+        print(f"[API] After dedup: {len(unique_docs)} docs ({img_count_dedup} images)")
+        
         # Stage 3: Reranking
         try:
+            from services.retrieval.reranker import rerank_with_scores
+            from services.llm.client import evaluate_image_relevance
+            
+            scored_docs = rerank_with_scores(query_to_use, unique_docs[:50], top_k=chat_req.k + 10)
+            
+            # Use LLM to evaluate image relevance instead of score threshold
+            filtered_docs = []
+            for doc, score in scored_docs:
+                if doc.metadata.get('type') == 'image':
+                    # Ask LLM if this image is relevant to the query
+                    is_relevant = evaluate_image_relevance(chat_req.query, doc.page_content)
+                    if is_relevant:
+                        filtered_docs.append(doc)
+                        print(f"[API] Image KEPT by LLM: {doc.page_content[:50]}...")
+                    else:
+                        print(f"[API] Image FILTERED by LLM: {doc.page_content[:50]}...")
+                else:
+                    filtered_docs.append(doc)
+            
+            reranked = filtered_docs[:chat_req.k]
+        except Exception as e:
+            print(f"[API] Reranking with LLM filter failed: {e}, using basic rerank")
             reranked = rerank_results(query_to_use, unique_docs[:50], top_k=chat_req.k)
-        except:
-            reranked = unique_docs[:chat_req.k]
+        
+        # Track images after rerank
+        img_count_rerank = sum(1 for d in reranked if d.metadata.get('type') == 'image')
+        print(f"[API] After rerank: {len(reranked)} docs ({img_count_rerank} images)")
         
         # Stage 2: Build context with parent retrieval
         context = rag._build_context_with_parents(reranked)
         sources = [{"content": d.page_content[:200], "meta": d.metadata} for d in reranked]
+        
+        # Log image sources for debugging
+        image_sources = [s for s in sources if s["meta"].get("type") == "image"]
+        print(f"[API] Sending {len(sources)} sources ({len(image_sources)} images) to frontend")
         
     except Exception as e:
         print(f"[ERROR] Retrieval failed: {e}")

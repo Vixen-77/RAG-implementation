@@ -1,11 +1,4 @@
-"""
-Hybrid Search Module - Stage 1 of 3-Stage Retrieval Pipeline
 
-Combines:
-- Vector Search (semantic): Handles conceptual questions like "engine overheating"
-- BM25 (keyword): Handles technical terms like "DF025 fault code" or "M6 bolt"
-- RRF Fusion: Combines results using Reciprocal Rank Fusion
-"""
 
 import os
 import json
@@ -13,7 +6,6 @@ import pickle
 from typing import List, Dict, Any, Optional, Tuple
 from langchain_core.documents import Document
 
-# Lazy load BM25 to avoid import errors if not installed
 _bm25_index = None
 _bm25_corpus = None
 _bm25_doc_map: Dict[int, Document] = {}
@@ -22,15 +14,12 @@ BM25_PERSIST_PATH = "./chroma_db/bm25_index.pkl"
 
 
 def _tokenize(text: str) -> List[str]:
-    """Simple whitespace tokenizer with lowercasing."""
     import re
-    # Remove special chars, lowercase, split on whitespace
     text = re.sub(r'[^\w\s\-\.]', ' ', text.lower())
     return text.split()
 
 
 def _load_bm25_index():
-    """Load persisted BM25 index if it exists."""
     global _bm25_index, _bm25_corpus, _bm25_doc_map
     
     if os.path.exists(BM25_PERSIST_PATH):
@@ -65,10 +54,6 @@ def _save_bm25_index():
 
 
 def rebuild_bm25_index(documents: List[Document] = None):
-    """
-    Rebuild BM25 index from documents or from vector store.
-    Call this after ingesting new documents.
-    """
     global _bm25_index, _bm25_corpus, _bm25_doc_map
     
     try:
@@ -77,7 +62,6 @@ def rebuild_bm25_index(documents: List[Document] = None):
         print("[BM25] rank_bm25 not installed. Run: pip install rank_bm25")
         return False
     
-    # If no documents provided, fetch from vector store
     if documents is None:
         from services.storage.vector import vector_db
         try:
@@ -98,7 +82,6 @@ def rebuild_bm25_index(documents: List[Document] = None):
     
     print(f"[BM25] Building index for {len(documents)} documents...")
     
-    # Build corpus and document map
     _bm25_corpus = []
     _bm25_doc_map = {}
     
@@ -107,7 +90,6 @@ def rebuild_bm25_index(documents: List[Document] = None):
         _bm25_corpus.append(tokens)
         _bm25_doc_map[idx] = doc
     
-    # Create BM25 index
     _bm25_index = BM25Okapi(_bm25_corpus)
     
     _save_bm25_index()
@@ -210,39 +192,80 @@ def hybrid_search(query: str, k: int = 20, include_images: bool = False) -> List
     
     print(f"[Hybrid] Starting hybrid search for: {query[:50]}...")
     
-    # Vector search
-    filter_dict = {"type": "child"} if not include_images else None
     try:
-        vector_results = vector_db.similarity_search(query, k=k*2, filter=filter_dict)
-        print(f"[Hybrid] Vector search: {len(vector_results)} results")
+        vector_results = vector_db.similarity_search(query, k=k*2, filter={"type": "child"})
+        print(f"[Hybrid] Vector search (children): {len(vector_results)} results")
     except Exception as e:
         print(f"[Hybrid] Vector search failed: {e}")
         vector_results = []
     
-    # BM25 search
     bm25_results = bm25_search(query, k=k*2)
     print(f"[Hybrid] BM25 search: {len(bm25_results)} results")
     
-    # If BM25 has no results, fall back to vector only
     if not bm25_results:
         print("[Hybrid] BM25 empty, using vector results only")
-        return vector_results[:k]
-    
-    # If vector has no results, use BM25 only
-    if not vector_results:
+        combined = vector_results[:k]
+    elif not vector_results:
         print("[Hybrid] Vector empty, using BM25 results only")
-        return [doc for doc, _ in bm25_results[:k]]
+        combined = [doc for doc, _ in bm25_results[:k]]
+    else:
+        fused = reciprocal_rank_fusion(vector_results, bm25_results, k=60)
+        print(f"[Hybrid] RRF fusion: {len(fused)} unique documents")
+        combined = fused[:k]
     
-    # Fuse with RRF
-    fused = reciprocal_rank_fusion(vector_results, bm25_results, k=60)
+    if include_images and combined:
+        relevant_pages = set()
+        relevant_files = set()
+        for doc in combined[:10]:  
+            page_numbers_str = doc.metadata.get('page_numbers', '')
+            source = doc.metadata.get('source_file')
+            if page_numbers_str and source:
+                relevant_files.add(source)
+                for page_str in page_numbers_str.split(','):
+                    try:
+                        relevant_pages.add(int(page_str.strip()))
+                    except (ValueError, AttributeError):
+                        pass
+        
+        print(f"[Hybrid] Relevant files: {relevant_files}")
+        print(f"[Hybrid] Relevant pages from text: {sorted(relevant_pages)[:10]}{'...' if len(relevant_pages) > 10 else ''}")
+        
+        page_matched_images = []
+        if relevant_pages:
+            try:
+                all_images = vector_db.get(
+                    where={"type": "image"},
+                    limit=500
+                )
+                
+                if all_images and all_images.get('metadatas'):
+                    for i, meta in enumerate(all_images['metadatas']):
+                        img_page = meta.get('page')  
+                        img_source = meta.get('source_file')
+                        if img_page in relevant_pages and img_source in relevant_files:
+                            from langchain_core.documents import Document as LangDoc
+                            doc = LangDoc(
+                                page_content=all_images['documents'][i],
+                                metadata=meta
+                            )
+                            page_matched_images.append(doc)
+                
+                print(f"[Hybrid] Found {len(page_matched_images)} images from relevant pages")
+                    
+            except Exception as e:
+                print(f"[Hybrid] Image page matching failed: {e}")
+        
+        for img in page_matched_images[:5]:  
+            combined.insert(0, img)
     
-    print(f"[Hybrid] RRF fusion: {len(fused)} unique documents")
+    image_count = sum(1 for d in combined if d.metadata.get('type') == 'image')
+    print(f"[Hybrid] Final: {len(combined)} docs ({image_count} images)")
     
-    return fused[:k]
+    return combined
+
 
 
 def get_bm25_stats() -> Dict[str, Any]:
-    """Get BM25 index statistics."""
     global _bm25_index, _bm25_doc_map
     
     if _bm25_index is None:

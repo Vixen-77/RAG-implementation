@@ -191,8 +191,7 @@ flowchart TD
     
     VS --> RRF
     BM25 --> RRF
-    RRF --> DEDUP[Deduplicate]
-    DEDUP --> S3["Stage 3: Rerank"]
+    RRF --> S3["Stage 3: Rerank"]
     
     subgraph S3["Stage 3: Cross-Encoder Rerank"]
         CE[ms-marco-MiniLM-L-6-v2]

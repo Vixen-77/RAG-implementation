@@ -3,7 +3,6 @@ import time
 from typing import List, Tuple
 from langchain_core.documents import Document
 
-# Lazy load the model to avoid slow startup
 _reranker = None
 _model_name = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 

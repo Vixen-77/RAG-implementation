@@ -2,7 +2,6 @@ import os
 import hashlib
 from typing import Dict, Any, List
 from langchain_core.documents import Document
-
 from .pdf_processor import extract_text_pages
 from .chunking import create_parent_chunks, create_child_chunks
 from .vision import process_images
@@ -41,7 +40,6 @@ class MultimodalIngestionPipeline:
             image_docs = process_images(pdf_path, filename, file_hash)
             print(f"[DEBUG] image_docs type: {type(image_docs)}, count: {len(image_docs) if image_docs else 'None'}")
             
-            # Ensure we have lists
             if child_docs is None:
                 child_docs = []
                 print("[WARNING] child_docs was None, using empty list")
@@ -81,10 +79,9 @@ class MultimodalIngestionPipeline:
             
             print(f"[INFO] Successfully added {len(all_children)} documents to vector store")
             
-            # Rebuild BM25 index for hybrid search
             print("[INFO] Rebuilding BM25 index for hybrid search...")
             try:
-                rebuild_bm25_index(children)  # Only index child chunks
+                rebuild_bm25_index(children)  
             except Exception as e:
                 print(f"[WARN] BM25 index rebuild failed: {e}")
 

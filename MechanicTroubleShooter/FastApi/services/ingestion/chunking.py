@@ -6,16 +6,12 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from .pdf_processor import detect_vehicle_model
 
 
-CHILD_CHUNK_SIZE = 2400  # ~600 tokens
-CHILD_CHUNK_OVERLAP = 400  # ~100 tokens
+CHILD_CHUNK_SIZE = 2400  
+CHILD_CHUNK_OVERLAP = 400  
 
 
 def create_parent_chunks(pages: List[Dict[str, Any]], filename: str, file_hash: str) -> List[Document]:
-    """Create large parent chunks (full sections) for context retrieval.
     
-    These parent chunks store complete sections that provide full context
-    when child chunks are retrieved during vector search.
-    """
     parents = []
     parent_id_counter = 0
     
@@ -35,12 +31,12 @@ def create_parent_chunks(pages: List[Dict[str, Any]], filename: str, file_hash: 
             metadata={
                 "parent_id": parent_id,
                 "type": "parent",
-                "source_file": filename,  # Document Name
+                "source_file": filename,  
                 "file_hash": file_hash,
-                "chapter": section_title,  # Chapter header
+                "chapter": section_title,  
                 "section_title": section_title,
                 "section_code": section_code,
-                "page_numbers": page_numbers,  # Page Number(s)
+                "page_numbers": page_numbers,  
                 "vehicle_model": vehicle_model,
                 "char_count": len(section_text)
             }
@@ -51,13 +47,9 @@ def create_parent_chunks(pages: List[Dict[str, Any]], filename: str, file_hash: 
     return parents
 
 def _split_by_headers(text: str, pages: List[Dict[str, Any]] = None) -> List[Tuple[str, str, str, str]]:
-    """Split text by markdown-style headers and track page numbers.
     
-    Returns: List of (section_title, section_text, section_code, page_numbers)
-    """
     header_pattern = r'^(\d{1,2}\.?\s*)?([A-Z][a-zA-Z\s\-\&]{3,})$'
     
-    # Build a mapping of content to page numbers
     content_to_page = {}
     if pages:
         for page in pages:
@@ -82,7 +74,6 @@ def _split_by_headers(text: str, pages: List[Dict[str, Any]] = None) -> List[Tup
         if line_stripped.isdigit():
             continue
         
-        # Track page number for this line
         if line_stripped in content_to_page:
             current_pages.add(content_to_page[line_stripped])
         
@@ -113,20 +104,19 @@ def create_child_chunks(parent_docs: List[Document]) -> List[Document]:
     
     children = []
     
-    # Recursive splitting with markdown-aware separators
     child_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHILD_CHUNK_SIZE,  # ~600 tokens
-        chunk_overlap=CHILD_CHUNK_OVERLAP,  # ~100 tokens
+        chunk_size=CHILD_CHUNK_SIZE,  
+        chunk_overlap=CHILD_CHUNK_OVERLAP,  
         separators=[
-            "\n## ",  # Markdown H2 headers
-            "\n### ",  # Markdown H3 headers  
-            "\n#### ",  # Markdown H4 headers
-            "\n\n",  # Double newlines (paragraphs)
-            "\n",  # Single newlines
-            ". ",  # Sentences
-            "; ",  # Semi-colon separated
-            ", ",  # Comma separated
-            " ",  # Words
+            "\n## ", 
+            "\n### ",  
+            "\n#### ",  
+            "\n\n",  
+            "\n",  
+            ". ",  
+            "; ",  
+            ", ",  
+            " ",  
             ""  
         ]
     )

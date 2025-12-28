@@ -116,25 +116,20 @@ class ParentChildRAG:
             parent_id = child.metadata.get("parent_id")
             section_title = child.metadata.get("section_title", "Unknown")
             
-            # Try to get parent document for full context
             if parent_id and parent_id not in seen_parents:
                 parent_doc = self.docstore.get_document(parent_id)
                 
                 if parent_doc:
                     seen_parents.add(parent_id)
                     src = f"[Source {i+1}: {section_title} (Full Section)]"
-                    # Use parent's full content for complete context
                     context_parts.append(f"{src}\n{parent_doc.page_content}")
                     print(f"    [Parent] Retrieved: {section_title} ({len(parent_doc.page_content)} chars)")
                 else:
-                    # Fall back to child content if parent not found
                     src = f"[Source {i+1}: {section_title}]"
                     context_parts.append(f"{src}\n{child.page_content}")
             elif parent_id in seen_parents:
-                # Parent already included, skip duplicate
                 continue
             else:
-                # No parent_id, use child content
                 src = f"[Source {i+1}: {section_title}]"
                 context_parts.append(f"{src}\n{child.page_content}")
         
@@ -206,7 +201,6 @@ class ParentChildRAG:
         return any(k in query.lower() for k in keywords)
 
     def _build_context(self, docs: List[Document]) -> str:
-        """Build context from child documents only (fallback)."""
         parts = []
         for i, doc in enumerate(docs):
             src = f"[Source {i+1}, {doc.metadata.get('section_title', 'Unknown')}]"

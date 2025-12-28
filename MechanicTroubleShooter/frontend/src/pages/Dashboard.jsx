@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Send, Bot, User as UserIcon, Loader2, RefreshCw } from 'lucide-react';
+import { Send, Bot, User as UserIcon, Loader2, RefreshCw, Image } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const Dashboard = () => {
@@ -81,6 +81,17 @@ const Dashboard = () => {
               const parsed = JSON.parse(data);
               if (parsed.conversation_id) {
                 setConversationId(parsed.conversation_id);
+              }
+              // Extract image sources from metadata
+              if (parsed.sources) {
+                const imageSources = parsed.sources.filter(s => s.meta?.type === 'image');
+                if (imageSources.length > 0) {
+                  setMessages(prev => prev.map(msg =>
+                    msg.id === botMessageId
+                      ? { ...msg, imageSources }
+                      : msg
+                  ));
+                }
               }
             } catch {
               // It's a token, append to response (skip empty strings only)
@@ -163,9 +174,33 @@ const Dashboard = () => {
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${msg.sender === 'user' ? 'bg-indigo-600' : 'bg-gray-700'}`}>
                   {msg.sender === 'user' ? <UserIcon className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
                 </div>
-                <div className={`p-3 rounded-2xl ${msg.sender === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white/10 text-gray-200 rounded-bl-none'}`}>
-                  {msg.text}
-                  {msg.streaming && <span className="inline-block w-1 h-4 bg-gray-400 ml-1 animate-pulse" />}
+                <div className={`flex flex-col gap-2 ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                  <div className={`p-3 rounded-2xl ${msg.sender === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white/10 text-gray-200 rounded-bl-none'}`}>
+                    {msg.text}
+                    {msg.streaming && <span className="inline-block w-1 h-4 bg-gray-400 ml-1 animate-pulse" />}
+                  </div>
+                  {/* Image Sources Display */}
+                  {msg.imageSources && msg.imageSources.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      {msg.imageSources.map((source, idx) => (
+                        <div key={idx} className="bg-white/5 border border-white/10 rounded-lg p-2 max-w-[200px]">
+                          <div className="flex items-center gap-1 text-xs text-gray-400 mb-1">
+                            <Image className="w-3 h-3" />
+                            <span>Referenced Image</span>
+                          </div>
+                          {source.meta?.image_path && (
+                            <img
+                              src={`/${source.meta.image_path}`}
+                              alt="Referenced diagram"
+                              className="w-full h-auto rounded mb-1 cursor-pointer hover:opacity-80 transition-opacity"
+                              onClick={() => window.open(`/${source.meta.image_path}`, '_blank')}
+                            />
+                          )}
+                          <p className="text-xs text-gray-300 line-clamp-3">{source.content}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.div>
