@@ -39,32 +39,36 @@ def create_parent_chunks(pages: List[Dict[str, Any]], filename: str, file_hash: 
     return parents
 
 def _split_by_headers(text: str) -> List[Tuple[str, str, str]]:
-    header_pattern = r'^([0-9]{1,2}[A-Z]?\s+)?([A-Z][A-Z\s]{10,})$'
+   
+    header_pattern = r'^(\d{1,2}\.?\s*)?([A-Z][a-zA-Z\s\-\&]{3,})$'
+    
     lines = text.split('\n')
     sections = []
     current_title = "General"
     current_section = []
     current_code = "unknown"
-    
+    last_header = ""
     for line in lines:
         line_stripped = line.strip()
+
+        if line_stripped.isdigit():
+            continue
         match = re.match(header_pattern, line_stripped)
-        
-        if match and len(line_stripped) < 100:
+        if match and len(line_stripped) < 60: 
+            new_title = match.group(2).strip()
+            if new_title == last_header:
+                continue 
             if current_section:
                 sections.append((current_title, "\n".join(current_section), current_code))
-            
-            code_part = match.group(1) or ""
-            current_code = code_part.strip() if code_part else "unknown"
-            current_title = line_stripped
+            current_code = match.group(1).strip() if match.group(1) else "unknown"
+            current_title = new_title
             current_section = []
+            last_header = new_title
         else:
             if line_stripped:
                 current_section.append(line)
-    
     if current_section:
         sections.append((current_title, "\n".join(current_section), current_code))
-    
     return sections
 
 def create_child_chunks(parent_docs: List[Document]) -> List[Document]:

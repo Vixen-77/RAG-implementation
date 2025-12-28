@@ -35,16 +35,10 @@ def read_root(request: Request):
         "database_stats": {**stats, "docstore": doc_stats.get("total_parents", 0)}
     }
 
-@router.get("/demos")
-def list_demos():
-    """List demo scenarios."""
-    return {
-        "demos": [{"id": k, "desc": v["description"], "link": f"/demo/{k}"} for k,v in DEMO_QUERIES.items()]
-    }
+
 
 @router.get("/demo/{demo_id}")
 async def run_demo(demo_id: str, request: Request):
-    """Run demo scenario."""
     rag = get_rag_system(request)
     if demo_id not in DEMO_QUERIES or not rag:
         raise HTTPException(503, "Demo unavailable or system not ready")
@@ -53,7 +47,7 @@ async def run_demo(demo_id: str, request: Request):
     print(f"[DEMO] Running: {demo['description']}")
     
     try:
-        res = rag.query(demo["query"], k=3)
+        res = rag.query(demo["query"], k=10)
         return {
             "answer": res.get("answer"),
             "sources": [{"content": d.page_content[:200], "meta": d.metadata} for d in res.get("sources", [])],
@@ -65,7 +59,6 @@ async def run_demo(demo_id: str, request: Request):
 
 @router.post("/ingest", response_model=IngestResponse)
 async def upload_manual(request: Request, file: UploadFile = File(...), force_reingest: bool = False):
-    """Upload PDF."""
     pipe = get_ingestion_pipeline(request)
     if not pipe: raise HTTPException(503, "Ingestion unavailable")
     
@@ -78,7 +71,6 @@ async def upload_manual(request: Request, file: UploadFile = File(...), force_re
     res = pipe.ingest_pdf(path, force=force_reingest)
     
     if res.get("status") == "success":
-        # Re-init RAG
         request.app.state.rag_system = ParentChildRAG(persist_dir=CHROMA_PERSIST_DIR)
     
     return IngestResponse(

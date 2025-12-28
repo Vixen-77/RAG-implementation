@@ -1,6 +1,4 @@
-
-
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set
 from langchain_core.documents import Document
 
 from services.storage.vector import vector_db
@@ -19,28 +17,34 @@ class ParentChildRAG:
         count = self.vectorstore._collection.count()
         print(f"[RAG] Initialized. Children: {count}. Parents: {len(self.docstore)}")
     
-    def query(self, user_question: str, k: int = 3, child_k: int = 20) -> Dict[str, Any]:
-        """Execute RAG pipeline."""
+    def query(self, user_question: str, k: int = 10, child_k: int = 50) -> Dict[str, Any]:
         print(f"\n[QUERY] {user_question}")
         
-        # 1. Search
         is_visual = self._is_visual_query(user_question)
-        search_k = child_k + 5 if is_visual else child_k
+        search_k = (child_k * 3) + 10 if is_visual else (child_k * 3)
+        
         child_docs = self._search_children(user_question, k=search_k, include_images=is_visual)
         
         if not child_docs:
             return self._no_results_response()
             
-        print(f"[RAG] Found {len(child_docs)} children")
+        print(f"[RAG] Found {len(child_docs)} children from vector search")
         
-        # 2. Rerank
+        unique_docs = self._deduplicate_aggressively(child_docs)
+        print(f"[RAG] After deduplication: {len(unique_docs)} unique children")
+        
+        candidates = unique_docs[:child_k]
+        print(f"[RAG] Passing {len(candidates)} unique candidates to reranker")
+        
         try:
-            reranked = rerank_results(user_question, child_docs, top_k=k)
+            reranked = rerank_results(user_question, candidates, top_k=k)
         except Exception as e:
             print(f"[WARN] Rerank failed: {e}")
-            reranked = child_docs[:k]
-            
-        # 3. Generate
+            reranked = candidates[:k]
+        
+        print(f"[RAG] Final sources after reranking: {len(reranked)}")
+        
+        # 5. Generate
         context = self._build_context(reranked)
         answer = generate_chat_answer(context, user_question, {"strategy": "child_direct"})
         
@@ -53,6 +57,75 @@ class ParentChildRAG:
             "context_chars": len(context),
             "formatted_sources": self._format_sources(reranked)
         }
+    
+    def _deduplicate_aggressively(self, docs: List[Document]) -> List[Document]:
+       
+        if not docs:
+            return []
+        
+        unique_docs = []
+        seen_content: Set[str] = set()
+        seen_parents: Set[str] = set()
+        similar_contents: List[str] = []
+        
+        for doc in docs:
+            content = doc.page_content.strip()
+            parent_id = doc.metadata.get("parent_id")
+            
+            # Skip if exact duplicate
+            if content in seen_content:
+                continue
+            
+            is_similar = False
+            if len(content) < 100:  # Only check similarity for short chunks
+                for existing in similar_contents:
+                    if self._is_too_similar(content, existing):
+                        is_similar = True
+                        break
+            
+            if is_similar:
+                continue
+            
+
+            if parent_id:
+                parent_count = sum(1 for d in unique_docs if d.metadata.get("parent_id") == parent_id)
+                if parent_count >= 2:  
+                    continue
+            
+            seen_content.add(content)
+            if len(content) < 100:
+                similar_contents.append(content)
+            if parent_id:
+                seen_parents.add(parent_id)
+            
+            unique_docs.append(doc)
+        
+        removed = len(docs) - len(unique_docs)
+        if removed > 0:
+            
+        
+         return unique_docs
+    
+    def _is_too_similar(self, content1: str, content2: str, threshold: float = 0.85) -> bool:
+        if content1 == content2:
+            return True
+        
+        if len(content1) < 50 or len(content2) < 50:
+            longer = content1 if len(content1) > len(content2) else content2
+            shorter = content2 if len(content1) > len(content2) else content1
+            return shorter in longer
+        
+        words1 = set(content1.lower().split())
+        words2 = set(content2.lower().split())
+        
+        if not words1 or not words2:
+            return False
+        
+        intersection = len(words1.intersection(words2))
+        smaller_set = min(len(words1), len(words2))
+        
+        similarity = intersection / smaller_set if smaller_set > 0 else 0
+        return similarity >= threshold
     
     def _is_visual_query(self, query: str) -> bool:
         keywords = ["show", "diagram", "picture", "image", "photo", "location", "look like", "see"]

@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 
 class ChatRequest(BaseModel):
     query: str
-    k: Optional[int] = 3  
+    k: Optional[int] = 8  
 
 class ChatResponse(BaseModel):
     answer: str

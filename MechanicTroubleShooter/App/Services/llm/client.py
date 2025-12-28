@@ -10,7 +10,6 @@ VISION_MODEL = "llava-phi3"
 CACHE_FILE = "./chroma_db/image_captions_cache.json"
 
 def call_ollama(prompt: str, model: str, image_path: str = None) -> str:
-    """Call Ollama API."""
     print(f"[LLM] Calling {model}...")
     
     payload = {
@@ -71,7 +70,6 @@ ANSWER:
     raw = call_ollama(prompt, model="llama3.2")
     answer = raw.strip()
 
-    # Light post-processing: remove leading filler
     for prefix in [
         "BASED ON THE CONTEXT,",
         "ACCORDING TO THE CONTEXT,",

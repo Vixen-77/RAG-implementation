@@ -192,7 +192,6 @@ def get_collection_stats():
     try:
         total_count = vector_db._collection.count()
         
-        # Get list of unique indexed files
         try:
             all_docs = vector_db.get()
             indexed_files = set()
@@ -283,7 +282,6 @@ def delete_documents_by_source(source_file: str) -> dict:
         
         print(f" [Delete] Found {count} documents from '{source_file}'")
         
-        # Delete all matching documents
         vector_db._collection.delete(ids=ids_to_delete)
         
         print(f" [Delete] Successfully removed {count} embeddings from '{source_file}'")

@@ -57,7 +57,7 @@ class ParentDocumentStore:
                 json.dump(data, f, ensure_ascii=False, indent=2)
                 
         except Exception as e:
-            print(f"   ❌ [DocStore] Failed to save persistence file: {e}")
+            print(f"    [DocStore] Failed to save persistence file: {e}")
     
     def add_document(self, doc_id: str, document: Document):
         
