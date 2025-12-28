@@ -10,7 +10,6 @@ class RouteDecision(Enum):
     OUT_OF_SCOPE = "OUT_OF_SCOPE"
 
 
-# Keep backwards compatibility
 class QueryRoute:
     RAG_NEEDED = RouteDecision.RAG_NEEDED.value
     DIRECT_ANSWER = RouteDecision.DIRECT_ANSWER.value

@@ -12,7 +12,7 @@ def get_reranker():
     global _reranker
     
     if _reranker is None:
-        print(f"🔄 [Reranker] Loading cross-encoder model: {_model_name}...")
+        print(f" [Reranker] Loading cross-encoder model: {_model_name}...")
         start = time.time()
         
         try:
@@ -23,7 +23,7 @@ def get_reranker():
             print(" [Reranker] sentence-transformers not installed!")
             return None
         except Exception as e:
-            print(f"❌ [Reranker] Failed to load model: {e}")
+            print(f" [Reranker] Failed to load model: {e}")
             return None
     
     return _reranker
@@ -37,7 +37,7 @@ def rerank_results(query: str, documents: List[Document], top_k: int = 10) -> Li
     reranker = get_reranker()
     
     if reranker is None:
-        print("⚠️ [Reranker] Model not available, returning original order")
+        print(" [Reranker] Model not available, returning original order")
         return documents[:top_k]
     
     print(f" [Reranker] Re-scoring {len(documents)} candidates...")
@@ -107,7 +107,7 @@ def filter_low_relevance(documents: List[Document], scores: List[float],
     
     if len(filtered) < len(documents):
         removed = len(documents) - len(filtered)
-        print(f"   🗑️ [Reranker] Filtered {removed} low-relevance chunks (threshold: {threshold})")
+        print(f"    [Reranker] Filtered {removed} low-relevance chunks (threshold: {threshold})")
     
     return filtered
 
