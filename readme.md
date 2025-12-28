@@ -37,7 +37,7 @@ graph TD
     C --> D[Text Extraction]
     C --> E[Image Extraction]
     D --> F[Parent Chunking<br/>Header Detection]
-    E --> G[Vision Captioning<br/>Llama 3.2 Vision]
+    E --> G[Vision Captioning<br/>llava-phi3]
     F --> H[Child Chunking<br/>400 char splits]
     G --> I[Image Documents]
     H --> J[ChromaDB<br/>Vector Store]
