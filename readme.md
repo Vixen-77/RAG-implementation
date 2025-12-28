@@ -460,19 +460,7 @@ child_k = 50  # Candidates before reranking
 
 ---
 
-## Performance
 
-| Operation | Latency | Notes |
-|-----------|---------|-------|
-| Router Decision | 500-800ms | LLM classification |
-| Hybrid Search | 80-150ms | Vector + BM25 + RRF |
-| Reranking | 100-200ms | Cross-encoder |
-| Parent Retrieval | 5-20ms | JSON lookup |
-| Token Generation | 20-50ms/token | Streaming |
-| Full RAG Response | 2-4s | End-to-end with 3-stage pipeline |
-| Direct Answer | 1-2s | Skip retrieval |
-
----
 
 ## Acknowledgments
 
