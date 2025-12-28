@@ -284,7 +284,7 @@ RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # Reranking
 ## Project Structure
 
 ```
-mecanic-ia/
+MechanicTroubleShooter/
 ├── services/
 │   ├── ingest/
 │       ├── chunking.py
@@ -295,19 +295,19 @@ mecanic-ia/
 │   │   ├── reranker.py
         └──  rag.py        
 │   ├── storage/
-│   │   ├── vector.py          # ChromaDB vector operations
-│   │   └── document.py        # Parent document store
+│   │   ├── vector.py         
+│   │   └── document.py        
 │   └── llm/
 │       └── client.py
           
-├── data/                      # PDF manuals (auto-processed on startup)
-├── chroma_db/                 # ChromaDB vector database
-├── chroma_parent_child/       # Parent document JSON store
+├── data/                      
+├── chroma_db/                
+├── chroma_parent_child/       
 │   ├── docstore.json
     └── image_captions_cache.json          
-├── main.py                    # FastAPI application
-├── requirements.txt           # Python dependencies
-├── README.md                  # This file
+├── main.py                    
+├── requirements.txt           
+├── README.md                  
 └── .gitignore
 ```
 
