@@ -266,30 +266,32 @@ Query: "drain plug torque"
 The system uses a **3-Stage Retrieval Pipeline** optimized for automotive manuals:
 
 ```mermaid
-flowchart TD
-    Q[User Query] --> S1["Stage 1: Hybrid Search"]
-    
-    subgraph S1["Stage 1: Hybrid Search"]
-        VS[Vector Search] 
+graph TD
+    Q[User Query] --> VS
+    Q --> BM25
+
+    subgraph S1 [Stage 1: Hybrid Search]
+        VS[Vector Search]
         BM25[BM25 Keyword Search]
         RRF[RRF Fusion]
+        
+        VS --> RRF
+        BM25 --> RRF
     end
-    
-    VS --> RRF
-    BM25 --> RRF
-    RRF --> S3["Stage 3: Rerank"]
-    
-    subgraph S3["Stage 3: Cross-Encoder Rerank"]
-        CE[ms-marco-MiniLM-L-6-v2]
-    end
-    
-    CE --> S2["Stage 2: Parent Context"]
-    
-    subgraph S2["Stage 2: Parent Retrieval"]
+
+    RRF --> CHILD
+
+    subgraph S2 [Stage 2: Parent Retrieval]
         CHILD[Child Chunks] --> PARENT[Fetch Parent Sections]
     end
-    
-    PARENT --> LLM[Generate Answer]
+
+    PARENT --> CE
+
+    subgraph S3 [Stage 3: Cross-Encoder Rerank]
+        CE[ms-marco-MiniLM-L-6-v2]
+    end
+
+    CE --> LLM[Generate Answer]
 ```
 
 ### Stage Details
