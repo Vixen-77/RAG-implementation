@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0f172a;
+  /* Slate 900 */
+  --foreground: #f8fafc;
+  /* Slate 50 */
+  --primary: #6366f1;
+  /* Indigo 500 */
+  --secondary: #64748b;
+  /* Slate 500 */
+  --accent: #8b5cf6;
+  /* Violet 500 */
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', sans-serif;
+  overflow-x: hidden;
+}
+
+/* Glassmorphism Utilities */
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+}
+
+.glass-card {
+  @apply glass rounded-xl p-6 transition-all duration-300 hover:bg-white/10;
+}
+
+.glass-input {
+  @apply glass rounded-lg px-4 py-3 outline-none focus:border-primary transition-all w-full;
+}
+
+.glass-button {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  @apply rounded-lg px-6 py-3 font-medium hover:opacity-90 transition-all active:scale-95 shadow-lg shadow-indigo-500/20;
+}

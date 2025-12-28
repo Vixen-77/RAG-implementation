@@ -1,409 +1,483 @@
-# Mecanic-IA: Multimodal RAG for Automotive Manuals
+# Mecanic-IA: Agentic RAG for Automotive Manuals
 
-A  Retrieval-Augmented Generation (RAG) system designed for querying car repair manuals. The system combines text search, image captioning, and intelligent retrieval strategies to provide accurate answers to automotive troubleshooting questions.
+An intelligent Retrieval-Augmented Generation system for querying Dacia vehicle repair manuals. Features real-time streaming responses, multi-turn conversation memory, and an agentic router that decides whether to retrieve information or answer directly.
 
 ## Table of Contents
 
 - [Features](#features)
-- [Architecture](#architecture)
+- [System Architecture](#system-architecture)
+- [Agentic Router](#agentic-router)
 - [Installation](#installation)
 - [Usage](#usage)
-- [API Documentation](#api-documentation)
-- [Configuration](#configuration)
+- [API Reference](#api-reference)
 - [Project Structure](#project-structure)
-- [Technical Details](#technical-details)
-- [Performance](#performance)
-- [Contributing](#contributing)
-- [License](#license)
+- [Technical Stack](#technical-stack)
+- [Configuration](#configuration)
+
+---
 
 ## Features
 
-- **Multimodal Processing**: Extracts and processes both text and images from PDF manuals
-- **Semantic Reranking**: Uses cross-encoder models for accurate relevance scoring
-- **Parent-Child Chunking**: Hierarchical document structure for optimal retrieval
-- **Vision Integration**: Automatic image captioning using Llama 3.2 Vision
-- **Fast Queries**: Sub-500ms response times for typical queries
-- **Persistent Storage**: ChromaDB for vectors, JSON for parent documents
-- **Production Ready**: Error handling, logging, and graceful degradation
+| Feature | Description |
+|---------|-----------|
+| **3-Stage Retrieval** | Hybrid search → Parent context → Cross-encoder reranking |
+| **Hybrid Search** | BM25 keyword + Vector semantic search with RRF fusion |
+| **Agentic Routing** | LLM decides whether to use RAG, answer directly, or request clarification |
+| **SSE Streaming** | Real-time token-by-token response streaming |
+| **Conversation Memory** | Multi-turn context preserved across messages |
+| **Multimodal Processing** | Extracts and processes both text and images from PDFs |
+| **Parent-Child Chunking** | Small chunks for search accuracy, parent sections for full context |
+| **Persistent Storage** | ChromaDB for vectors, BM25 index, JSON for parent documents |
 
-## Architecture
+---
 
-### System Overview
+## System Architecture
 
-```mermaid
-graph TD
-    A[PDF Manuals] --> B[Ingestion Pipeline]
-    B --> C[PDF Processing<br/>PyMuPDF]
-    C --> D[Text Extraction]
-    C --> E[Image Extraction]
-    D --> F[Parent Chunking<br/>Header Detection]
-    E --> G[Vision Captioning<br/>llava-phi3]
-    F --> H[Child Chunking<br/>400 char splits]
-    G --> I[Image Documents]
-    H --> J[ChromaDB<br/>Vector Store]
-    I --> J
-    H --> K[docstore.json<br/>Parent Store]
-```
-
-### Ingestion Pipeline
-
-The ingestion pipeline processes PDF manuals through several stages:
-
-1. **PDF Input**: Accepts automotive repair manual PDFs
-2. **Hash Check**: SHA256 deduplication to skip already-processed files
-3. **Text Extraction**: Extracts text content using PyMuPDF
-4. **Header Detection**: Identifies section headers (e.g., "10A ENGINE", "5.45 FAULTS")
-5. **Parent Chunking**: Creates large semantic chunks based on headers
-6. **Child Chunking**: Splits parents into 400-character searchable chunks
-7. **Image Processing**: Extracts diagrams and generates captions
-8. **Storage**: Stores children/images in ChromaDB, parents in JSON
+### High-Level Overview
 
 ```mermaid
-flowchart TD
-    A[PDF Input] --> B[Hash Check<br/>Skip Duplicates]
-    B --> C[Text Pages<br/>PyMuPDF]
-    C --> D[Header Splitting<br/>Parent Chunks]
-    D --> E[Recursive Splitter<br/>Child Chunks 400c]
-    F[Image Extract] --> G[Ollama Vision<br/>Captioning]
-    E --> H[ChromaDB<br/>Children + Images]
-    D --> I[JSON Store<br/>Parents by ID]
+graph TB
+    subgraph Frontend["Frontend (React + Vite)"]
+        UI[Dashboard UI]
+        SSE[SSE Client]
+    end
+
+    subgraph Gateway["Node.js Backend"]
+        AUTH[Authentication]
+        DB[(MongoDB)]
+    end
+
+    subgraph AI["FastAPI AI Service"]
+        ROUTER[Agentic Router]
+        RAG[RAG Pipeline]
+        CONV[Conversation Store]
+        LLM[Ollama LLM]
+    end
+
+    subgraph Storage["Vector Storage"]
+        CHROMA[(ChromaDB)]
+        DOCSTORE[(DocStore JSON)]
+    end
+
+    UI --> SSE
+    SSE -->|"/chat/stream"| ROUTER
+    UI -->|"/api/auth"| AUTH
+    AUTH --> DB
+
+    ROUTER -->|RAG_NEEDED| RAG
+    ROUTER -->|DIRECT_ANSWER| LLM
+    ROUTER --> CONV
+
+    RAG --> CHROMA
+    RAG --> DOCSTORE
+    RAG --> LLM
 ```
 
-### Retrieval Pipeline
-
-The retrieval system uses a multi-stage process for optimal accuracy:
+### Request Flow
 
 ```mermaid
 sequenceDiagram
-    User->>RAG: "Engine won't start"
-    RAG->>VectorDB: Similarity Search<br/>k=20 children
-    VectorDB->>RAG: Top Child Chunks
-    RAG->>Reranker: Cross-Encoder<br/>ms-marco-MiniLM
-    Reranker->>RAG: Top 3-5 chunks
-    RAG->>LLM: Formatted Context<br/>[Source 1, Section]
-    LLM->>User: Cited Answer
+    participant User
+    participant Frontend
+    participant Router
+    participant RAG
+    participant LLM
+
+    User->>Frontend: Send message
+    Frontend->>Router: POST /chat/stream
+    Router->>Router: Classify query intent
+
+    alt RAG_NEEDED
+        Router->>RAG: Retrieve context
+        RAG->>RAG: Vector search + Rerank
+        RAG->>LLM: Generate with context
+    else DIRECT_ANSWER
+        Router->>LLM: Generate without RAG
+    else CLARIFICATION_NEEDED
+        Router->>LLM: Request more details
+    else OUT_OF_SCOPE
+        Router->>Frontend: Polite redirect
+    end
+
+    LLM-->>Frontend: Stream tokens (SSE)
+    Frontend-->>User: Display in real-time
 ```
 
-**Retrieval Stages:**
+---
 
-1. **Vector Search**: Retrieve candidate chunks using embedding similarity
-2. **Reranking**: Score chunks with cross-encoder for true relevance
-3. **Selection**: Pick top 3-5 chunks for context
-4. **Generation**: Generate answer with citations using LLM
+## Agentic Router
 
-### Storage Architecture
+The system uses an intelligent query router that classifies user intent before deciding how to handle the request.
+
+### Routing Decisions
 
 ```mermaid
-graph LR
-    A[ChromaDB<br/>./chroma_db] --> B[Children<br/>Embeddings]
-    B --> C[type=child or image]
-    B --> D[parent_id metadata]
-    E[docstore.json] --> F[Parents<br/>Full Text]
-    F --> G[section_title<br/>char_count]
+flowchart TD
+    Q[User Query] --> R{Route Query}
+    R -->|Vehicle-specific| RAG[RAG_NEEDED]
+    R -->|General knowledge| DIR[DIRECT_ANSWER]
+    R -->|Vague/unclear| CLAR[CLARIFICATION_NEEDED]
+    R -->|Unrelated topic| OOS[OUT_OF_SCOPE]
+
+    RAG --> V[Vector Search]
+    V --> RR[Rerank Results]
+    RR --> GEN[Generate Answer]
+
+    DIR --> GEN2[Generate Without RAG]
+    CLAR --> ASK[Ask for Details]
+    OOS --> REDIRECT[Polite Redirect]
 ```
 
-**Vector Store (ChromaDB):**
-- Stores child chunks and image descriptions
-- 384-dimensional embeddings (all-MiniLM-L6-v2)
-- Metadata: parent_id, section_title, source_file, type
-- Local persistence in `./chroma_db`
+### Route Descriptions
 
-**Document Store (JSON):**
-- Stores complete parent documents
-- Mapped by parent_id for quick lookup
-- Contains full section text and metadata
-- Persisted in `./chroma_parent_child/docstore.json`
+| Route | Trigger | Behavior |
+|-------|---------|----------|
+| `RAG_NEEDED` | Requires manual lookup | Full retrieval pipeline with sources |
+| `DIRECT_ANSWER` | General automotive knowledge | Skip RAG, faster response |
+| `CLARIFICATION_NEEDED` | Vague query like "fix it" | Ask user for specifics |
+| `OUT_OF_SCOPE` | Non-vehicle topics | Politely redirect to vehicle questions |
+
+---
+
+## Ingestion Pipeline
+
+```mermaid
+flowchart LR
+    PDF[PDF Upload] --> HASH{Hash Check}
+    HASH -->|New| EXTRACT[Extract Text]
+    HASH -->|Duplicate| SKIP[Skip]
+
+    EXTRACT --> HEADERS[Detect Headers]
+    HEADERS --> PARENT[Create Parent Chunks]
+    PARENT --> CHILD[Split to 400-char Children]
+
+    PDF --> IMG[Extract Images]
+    IMG --> VISION[Vision Captioning]
+
+    CHILD --> EMBED[Generate Embeddings]
+    VISION --> EMBED
+    EMBED --> CHROMA[(ChromaDB)]
+    PARENT --> JSON[(docstore.json)]
+```
+
+### Chunking Strategy
+
+**Parent Chunks:**
+- Split on detected section headers
+- Stored in docstore.json with full content
+- Used for context enrichment after retrieval
+
+**Child Chunks:**
+- ~600 tokens (~2400 chars) with 100-token overlap
+- Embedded with all-MiniLM-L6-v2
+- Stored in ChromaDB with parent_id reference
+- Also indexed in BM25 for keyword search
+
+---
+
+## Retrieval Pipeline
+
+The system uses a **3-Stage Retrieval Pipeline** optimized for automotive manuals:
+
+```mermaid
+flowchart TD
+    Q[User Query] --> S1["Stage 1: Hybrid Search"]
+    
+    subgraph S1["Stage 1: Hybrid Search"]
+        VS[Vector Search] 
+        BM25[BM25 Keyword Search]
+        RRF[RRF Fusion]
+    end
+    
+    VS --> RRF
+    BM25 --> RRF
+    RRF --> DEDUP[Deduplicate]
+    DEDUP --> S3["Stage 3: Rerank"]
+    
+    subgraph S3["Stage 3: Cross-Encoder Rerank"]
+        CE[ms-marco-MiniLM-L-6-v2]
+    end
+    
+    CE --> S2["Stage 2: Parent Context"]
+    
+    subgraph S2["Stage 2: Parent Retrieval"]
+        CHILD[Child Chunks] --> PARENT[Fetch Parent Sections]
+    end
+    
+    PARENT --> LLM[Generate Answer]
+```
+
+### Stage Details
+
+| Stage | Purpose | Implementation |
+|-------|---------|----------------|
+| **Stage 1: Hybrid Search** | Handle both semantic and keyword queries | Vector + BM25 combined via Reciprocal Rank Fusion |
+| **Stage 2: Parent Context** | Ensure complete context (no missing safety steps) | Child finds the match, parent provides full section |
+| **Stage 3: Reranking** | Move truly relevant results to top | Cross-encoder rescores top candidates |
+
+### Why Hybrid Search?
+
+- **Vector Search** handles: *"How do I stop my engine from overheating?"*
+- **BM25 Keyword** handles: *"DF025 fault code"* or *"M6 bolt torque spec"*
+- **RRF Fusion** combines both for best of both worlds
+
+---
 
 ## Installation
 
 ### Prerequisites
 
-- Python 3.9 or higher
-- Ollama (for LLM and vision models)
-- 8GB+ RAM recommended
-- GPU optional (speeds up vision processing)
+- Python 3.9+
+- Node.js 18+
+- Ollama
+- MongoDB (for authentication)
 
-### Setup Steps
+### Backend Setup
 
-1. **Clone the repository**
 ```bash
+# Clone repository
 git clone https://github.com/yourusername/mecanic-ia.git
 cd mecanic-ia
-```
 
-2. **Create virtual environment**
-```bash
+# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-3. **Install dependencies**
-```bash
+# Install Python dependencies
+cd MechanicTroubleShooter/FastApi
 pip install -r requirements.txt
+
+# Pull Ollama models
+ollama pull llama3.1
+ollama pull llava-phi3
+
+# Start FastAPI server
+uvicorn main:app --reload --port 8000
 ```
 
-4. **Install and start Ollama**
+### Frontend Setup
+
 ```bash
-# Install Ollama from https://ollama.ai
-ollama serve
+cd MechanicTroubleShooter/frontend
+npm install
+npm run dev
 ```
 
-5. **Pull required models**
+### Node.js Backend (Authentication)
+
 ```bash
-ollama pull llama3.2:3b
-ollama pull llama3.2-vision
+cd MechanicTroubleShooter/backend
+npm install
+npm start
 ```
 
-6. **Run the application**
-```bash
-uvicorn main:app --reload
-```
-
-The API will be available at `http://localhost:8000`
+---
 
 ## Usage
 
-### Quick Start
+### Web Interface
 
-1. **Health Check**
+1. Navigate to http://localhost:5173
+2. Register/Login
+3. Start chatting with the AI assistant
+
+### API Examples
+
+**Streaming Chat:**
 ```bash
-curl http://localhost:8000/
+curl -N -X POST http://localhost:8000/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"query": "How do I check the oil level?", "conversation_id": null}'
 ```
 
-2. **Upload a PDF Manual**
+**Upload Manual:**
 ```bash
 curl -X POST http://localhost:8000/ingest \
-  -F "file=@path/to/manual.pdf"
+  -F "file=@manual.pdf"
 ```
 
-3. **Query the System**
+**System Stats:**
 ```bash
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"query": "Why won'\''t my engine start?"}'
+curl http://localhost:8000/stats
 ```
 
-4. **Run Demo Scenarios**
-```bash
-curl http://localhost:8000/demo/won't_start
-```
+---
 
-### Interactive API Documentation
-
-Visit `http://localhost:8000/docs` for the Swagger UI interface where you can:
-- Test all endpoints interactively
-- View request/response schemas
-- Download API specifications
-
-## API Documentation
+## API Reference
 
 ### Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/` | Health check and system statistics |
-| GET | `/demos` | List available demo scenarios |
-| GET | `/demo/{id}` | Run a specific demo query |
-| POST | `/ingest` | Upload and process a PDF manual |
-| POST | `/chat` | Query the RAG system |
-| GET | `/stats` | Get database statistics |
-| DELETE | `/reset` | Clear all data from database |
+| GET | `/` | Health check and system status |
+| GET | `/health` | Component health status |
+| POST | `/ingest` | Upload and process PDF manual |
+| POST | `/chat` | Synchronous chat (non-streaming) |
+| POST | `/chat/stream` | Streaming chat with SSE |
+| GET | `/stats` | Database statistics |
+| GET | `/demo/{id}` | Run demo query |
+| DELETE | `/reset` | Clear all data |
 
-### Request/Response Examples
+### SSE Event Format
 
-**Chat Query**
-```bash
-POST /chat
-{
-  "query": "How do I check the oil level?"
-}
+```
+event: metadata
+data: {"conversation_id": "uuid", "num_sources": 5, "route": "rag"}
 
-Response:
-{
-  "answer": "According to Source 1 [LUBRICATION SYSTEM]...",
-  "sources": [
-    {
-      "source_num": 1,
-      "title": "LUBRICATION SYSTEM",
-      "file": "manual.pdf",
-      "preview": "Check oil level with dipstick..."
-    }
-  ],
-  "num_sources": 3,
-  "context_chars": 1847
-}
+event: token
+data: According
+
+event: token
+data:  to
+
+event: done
+data:
 ```
 
-**Ingest PDF**
-```bash
-POST /ingest
-Content-Type: multipart/form-data
-file: manual.pdf
-
-Response:
-{
-  "message": "Successfully processed manual.pdf",
-  "pages": 245,
-  "chunks": 1823,
-  "images": 67
-}
-```
-
-## Configuration
-
-### Core Settings
-
-Edit `services/rag.py` to adjust retrieval parameters:
-
-```python
-# Retrieval Configuration
-CHILD_K = 20            # Candidates for reranking
-TOP_K = 3               # Final chunks for context
-
-# Chunking Configuration
-CHUNK_SIZE = 400        # Child chunk size (characters)
-CHUNK_OVERLAP = 50      # Overlap between chunks
-```
-
-### Model Configuration
-
-Models are loaded from Ollama. To change models:
-
-```python
-# services/llm/client.py
-LLM_MODEL = "llama3.2:3b"           # Text generation
-VISION_MODEL = "llama3.2-vision"    # Image captioning
-
-# services/storage/vector.py
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # Text embeddings
-
-# services/retrieval/reranker.py
-RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # Reranking
-```
+---
 
 ## Project Structure
 
 ```
-mecanic-ia/
-├── services/
-│   ├── ingest/
-│       ├── chunking.py
-        ├── pdf_processor.py
-        ├── pipeline.py
-        └── vision.py            
-│   ├── retrieval/
-│   │   ├── reranker.py
-        └──  rag.py        
-│   ├── storage/
-│   │   ├── vector.py          # ChromaDB vector operations
-│   │   └── document.py        # Parent document store
-│   └── llm/
-│       └── client.py
-          
-├── data/                      # PDF manuals (auto-processed on startup)
-├── chroma_db/                 # ChromaDB vector database
-├── chroma_parent_child/       # Parent document JSON store
-│   ├── docstore.json
-    └── image_captions_cache.json          
-├── main.py                    # FastAPI application
-├── requirements.txt           # Python dependencies
-├── README.md                  # This file
-└── .gitignore
+MechanicTroubleShooter/
+├── FastApi/                    # AI Backend
+│   ├── main.py                 # FastAPI application entry
+│   ├── api/
+│   │   └── routes.py           # API endpoints
+│   ├── schemas/
+│   │   └── models.py           # Pydantic models
+│   ├── services/
+│   │   ├── ingestion/          # PDF processing
+│   │   │   ├── pipeline.py     # Main ingestion orchestrator
+│   │   │   ├── pdf_processor.py
+│   │   │   ├── chunking.py
+│   │   │   └── vision.py
+│   │   ├── retrieval/          # RAG logic
+│   │   │   ├── rag.py          # 3-stage retrieval pipeline
+│   │   │   ├── hybrid_search.py # BM25 + Vector + RRF fusion
+│   │   │   └── reranker.py     # Cross-encoder reranking
+│   │   ├── storage/            # Data persistence
+│   │   │   ├── vector.py       # ChromaDB operations
+│   │   │   ├── document.py     # Parent document store
+│   │   │   └── conversation.py # Conversation memory
+│   │   └── llm/                # Language models
+│   │       ├── client.py       # Ollama API client
+│   │       └── router.py       # Agentic query router
+│   ├── chroma_db/              # Vector database + BM25 index
+│   └── chroma_parent_child/    # Document store
+│       └── docstore.json
+│
+├── frontend/                   # React Frontend
+│   ├── src/
+│   │   ├── pages/
+│   │   │   └── Dashboard.jsx   # Chat interface
+│   │   ├── api/
+│   │   │   └── axios.js        # API client
+│   │   └── context/
+│   │       └── AuthContext.jsx
+│   └── vite.config.js          # Vite with proxy config
+│
+└── backend/                    # Node.js Auth Backend
+    ├── app.js
+    ├── controllers/
+    ├── models/
+    └── routers/
 ```
 
-## Technical Details
+---
 
-### Tech Stack
+## Technical Stack
+
+### AI/ML Components
 
 | Component | Technology | Purpose |
-|-----------|-----------|---------|
-| **Embeddings** | all-MiniLM-L6-v2 | Convert text to 384-dim vectors |
-| **Vector DB** | ChromaDB | Store and search embeddings |
-| **Reranker** | ms-marco-MiniLM-L-6-v2 | Re-score relevance with cross-encoder |
-| **LLM** | Llama 3.2 3B | Generate natural language answers |
-| **Vision** | Llama 3.2 Vision | Caption diagrams and images |
-| **PDF Parser** | PyMuPDF (fitz) | Extract text and images from PDFs |
-| **API** | FastAPI | REST API framework |
-| **Frontend** | Next.js + Tailwind | Web interface (optional) |
+|-----------|------------|--------|
+| Embeddings | all-MiniLM-L6-v2 | 384-dim text vectors |
+| Vector DB | ChromaDB | Semantic similarity search |
+| BM25 Index | rank_bm25 | Keyword search for technical terms |
+| Reranker | ms-marco-MiniLM-L-6-v2 | Cross-encoder scoring |
+| LLM | Llama 3.1 (8B) | Text generation |
+| Vision | llava-phi3 | Image captioning |
+| PDF Parser | PyMuPDF | Text/image extraction |
 
-### Chunking Strategy
+### Backend
 
-**Parent Chunks:**
-- Created by splitting on detected section headers
-- Typically 2-10 pages of content
-- Stored in `docstore.json` with metadata
-- Used for full context when needed
+| Component | Technology |
+|-----------|------------|
+| AI API | FastAPI |
+| Streaming | SSE (sse-starlette) |
+| Auth API | Express.js |
+| Auth DB | MongoDB |
 
-**Child Chunks:**
-- 400 characters with 50-character overlap
-- Embedded and stored in ChromaDB
-- Linked to parents via `parent_id` metadata
-- Used for precise vector search
+### Frontend
 
+| Component | Technology |
+|-----------|------------|
+| Framework | React 18 |
+| Build Tool | Vite |
+| Styling | TailwindCSS |
+| Animations | Framer Motion |
+| Icons | Lucide React |
 
+---
 
-### Reranking Process
+## Configuration
 
-**Stage 1: Vector Search**
-- Fast bi-encoder embeddings
-- Retrieves candidates in <100ms
-- Good recall, moderate precision
+### Environment Variables
 
-**Stage 2: Cross-Encoder Reranking**
-- Scores query + document pairs
-- Much more accurate than embeddings
-- Selects top 3-5 for final context
+```env
+# .env (FastApi directory)
+OLLAMA_URL=http://localhost:11434/api/generate
+CHROMA_PERSIST_DIR=./chroma_db
 
+# .env (backend directory)
+MONGODB_URI=mongodb://localhost:27017/mecanic-ia
+JWT_SECRET=your-secret-key
+```
+
+### Model Configuration
+
+Edit `services/llm/client.py`:
+
+```python
+OLLAMA_URL = "http://localhost:11434/api/generate"
+VISION_MODEL = "llava-phi3"  # For image captioning
+```
+
+Edit `services/llm/router.py` and `client.py`:
+
+```python
+model = "llama3.1"  # Main text generation model
+```
+
+### Retrieval Tuning
+
+Edit `api/routes.py`:
+
+```python
+k = 10  # Number of final sources
+child_k = 50  # Candidates before reranking
+```
+
+---
 
 ## Performance
 
-### Benchmarks
+| Operation | Latency | Notes |
+|-----------|---------|-------|
+| Router Decision | 500-800ms | LLM classification |
+| Hybrid Search | 80-150ms | Vector + BM25 + RRF |
+| Reranking | 100-200ms | Cross-encoder |
+| Parent Retrieval | 5-20ms | JSON lookup |
+| Token Generation | 20-50ms/token | Streaming |
+| Full RAG Response | 2-4s | End-to-end with 3-stage pipeline |
+| Direct Answer | 1-2s | Skip retrieval |
 
-| Metric | Value | Notes |
-|--------|-------|-------|
-| **PDF Ingestion** | 2-5 min/100 pages | With GPU vision processing |
-| **Query Latency** | 300-500ms | Child-direct strategy |
-| **Search** | 50-100ms | Vector similarity search |
-| **Reranking** | 100-200ms | Cross-encoder scoring |
-| **LLM Generation** | 100-200ms | Answer generation |
-| **Context Size** | 1.2-2k tokens | Typically 3-5 chunks |
-| **Storage per Manual** | ~50MB | 200-page PDF with images |
-
-
-## Demo Scenarios
-
-The system includes pre-configured demo queries:
-
-| ID | Query | Expected Response |
-|----|-------|-------------------|
-| `won't_start` | "Engine won't start, lights work" | Check starter motor, immobiliser system |
-| `engine_smoke` | "Smoke coming from hood" | Stop vehicle immediately, contact dealer |
-| `dpf_blocked` | "DPF warning light on" | DPF regeneration procedure steps |
-
-Run demos:
-```bash
-curl http://localhost:8000/demo/won't_start
-curl http://localhost:8000/demo/engine_smoke
-curl http://localhost:8000/demo/dpf_blocked
-```
-### Testing
-
-```bash
-# Run manual tests
-python -m pytest tests/
-
-# Test specific endpoint
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"query": "test query"}'
-```
-
-
+---
 
 ## Acknowledgments
 
-- Built with [LangChain](https://github.com/langchain-ai/langchain)
-- Powered by [Ollama](https://ollama.ai)
-- Vector storage by [ChromaDB](https://www.trychroma.com/)
-- Embeddings from [Sentence Transformers](https://www.sbert.net/)
-
+- LangChain for document processing
+- Ollama for local LLM inference
+- ChromaDB for vector storage
+- Sentence Transformers for embeddings
