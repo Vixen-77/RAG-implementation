@@ -1,6 +1,6 @@
 # Mecanic-IA: Multimodal RAG for Automotive Manuals
 
-A production-ready Retrieval-Augmented Generation (RAG) system designed for querying car repair manuals. The system combines text search, image captioning, and intelligent retrieval strategies to provide accurate answers to automotive troubleshooting questions.
+A  Retrieval-Augmented Generation (RAG) system designed for querying car repair manuals. The system combines text search, image captioning, and intelligent retrieval strategies to provide accurate answers to automotive troubleshooting questions.
 
 ## Table of Contents
 
