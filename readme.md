@@ -16,6 +16,28 @@ An intelligent Retrieval-Augmented Generation system for querying Dacia vehicle 
 
 ---
 
+## What is RAG?
+
+**Retrieval-Augmented Generation (RAG)** is an AI architecture that combines:
+
+1. **Retrieval**: Search a knowledge base to find relevant documents
+2. **Augmentation**: Inject retrieved context into the LLM prompt
+3. **Generation**: LLM produces an answer grounded in real sources
+
+```mermaid
+flowchart LR
+    Q[User Question] --> R[Retriever]
+    R --> |"Find relevant docs"| KB[(Knowledge Base)]
+    KB --> C[Context]
+    C --> P["Prompt = Question + Context"]
+    P --> LLM[Language Model]
+    LLM --> A[Grounded Answer]
+```
+
+**Why RAG?** LLMs have knowledge cutoffs and can hallucinate. RAG grounds responses in your actual documents (workshop manuals), ensuring accuracy and providing citations.
+
+---
+
 ## Features
 
 | Feature | Description |
@@ -149,7 +171,7 @@ flowchart LR
 
     EXTRACT --> HEADERS[Detect Headers]
     HEADERS --> PARENT[Create Parent Chunks]
-    PARENT --> CHILD[Split to 400-char Children]
+    PARENT --> CHILD[Split to 2400-char Children]
 
     PDF --> IMG[Extract Images]
     IMG --> VISION[Vision Captioning]
@@ -162,16 +184,31 @@ flowchart LR
 
 ### Chunking Strategy
 
+> [!IMPORTANT]
+> **Why Parent-Child Chunking?** Small chunks give better search precision (finding the exact paragraph that matches), but lose surrounding context. Parent-child chunking solves this: search on small children, but retrieve the full parent section for the LLM.
+
 **Parent Chunks:**
-- Split on detected section headers
-- Stored in docstore.json with full content
+- Split on detected section headers (e.g., "Oil Change Procedure")
+- Stored in `docstore.json` with full content (often 5000+ chars)
 - Used for context enrichment after retrieval
 
 **Child Chunks:**
 - ~600 tokens (~2400 chars) with 100-token overlap
-- Embedded with all-MiniLM-L6-v2
-- Stored in ChromaDB with parent_id reference
+- Embedded with `all-MiniLM-L6-v2` (384-dimensional vectors)
+- Stored in ChromaDB with `parent_id` reference
 - Also indexed in BM25 for keyword search
+
+**Example:**
+```
+Parent: "Oil Change Procedure" (full 3-page section)
+  └── Child 1: "Tools needed: 13mm wrench, oil filter..." 
+  └── Child 2: "Step 1: Raise vehicle. Step 2: Locate drain..."
+  └── Child 3: "Torque specs: drain plug 20Nm, filter 15Nm..."
+
+Query: "drain plug torque"
+  → Matches Child 3
+  → Returns ENTIRE Parent section (so LLM sees all safety steps)
+```
 
 ---
 
@@ -216,9 +253,50 @@ flowchart TD
 
 ### Why Hybrid Search?
 
-- **Vector Search** handles: *"How do I stop my engine from overheating?"*
-- **BM25 Keyword** handles: *"DF025 fault code"* or *"M6 bolt torque spec"*
-- **RRF Fusion** combines both for best of both worlds
+| Search Type | Good For | Weakness |
+|-------------|----------|----------|
+| **Vector (Semantic)** | Natural language: *"engine overheating"* | Misses exact codes: *"DF025"* |
+| **BM25 (Keyword)** | Exact terms: *"DF025 fault code"*, *"M6 bolt"* | Misses synonyms: *"overheating" ≠ "high temp"* |
+| **Hybrid (RRF)** | Both! | Slightly more compute |
+
+#### Reciprocal Rank Fusion (RRF)
+
+RRF combines multiple ranked lists by scoring each document based on its position:
+
+```
+RRF_score(doc) = Σ ( 1 / (k + rank_i) )
+```
+
+Where `k=60` (constant) and `rank_i` is the document's position in each list. Documents appearing high in multiple lists get boosted.
+
+**Example:**
+- Doc A: Vector rank #2, BM25 rank #5 → RRF = 1/62 + 1/65 = 0.031
+- Doc B: Vector rank #10, BM25 rank #1 → RRF = 1/70 + 1/61 = 0.031
+- Doc C: Vector only rank #1 → RRF = 1/61 = 0.016
+
+### What is a Cross-Encoder Reranker?
+
+**Bi-encoders** (like our embedding model) encode query and documents separately, then compare via cosine similarity. Fast, but approximate.
+
+**Cross-encoders** process query AND document together, allowing deep attention between them. More accurate, but slower (hence used only on top candidates).
+
+```mermaid
+flowchart LR
+    subgraph BiEncoder["Bi-Encoder (Fast)"]
+        Q1[Query] --> E1[Embed]
+        D1[Doc] --> E2[Embed]
+        E1 --> COS[Cosine Sim]
+        E2 --> COS
+    end
+    
+    subgraph CrossEncoder["Cross-Encoder (Accurate)"]
+        Q2[Query] --> JOINT["Joint Encoding"]
+        D2[Doc] --> JOINT
+        JOINT --> SCORE[Relevance Score]
+    end
+```
+
+We use `ms-marco-MiniLM-L-6-v2` to rerank the top ~50 candidates down to the best ~10.
 
 ---
 
@@ -480,3 +558,22 @@ child_k = 50  # Candidates before reranking
 - Ollama for local LLM inference
 - ChromaDB for vector storage
 - Sentence Transformers for embeddings
+
+---
+
+## Glossary
+
+| Term | Definition |
+|------|------------|
+| **RAG** | Retrieval-Augmented Generation - combining search with LLM generation |
+| **Embedding** | A dense vector representation of text (here, 384 dimensions) |
+| **Vector Search** | Finding similar documents by comparing embedding distances |
+| **BM25** | A keyword-based ranking algorithm (term frequency × inverse document frequency) |
+| **RRF** | Reciprocal Rank Fusion - combines multiple search result lists |
+| **Cross-Encoder** | A model that processes query+document together for accurate relevance scoring |
+| **Bi-Encoder** | A model that embeds query and documents separately (faster, less accurate) |
+| **ChromaDB** | An open-source vector database for storing embeddings |
+| **Docstore** | JSON file storing full parent documents for context retrieval |
+| **Parent Chunk** | A large document section (full procedure/chapter) |
+| **Child Chunk** | A small searchable piece of a parent (~600 tokens) |
+| **SSE** | Server-Sent Events - protocol for streaming tokens to frontend |
