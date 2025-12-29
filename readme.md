@@ -44,15 +44,15 @@ Automotive technicians and mechanics face significant challenges when working wi
 
 Mecanic-IA transforms static PDF manuals into an intelligent conversational assistant that:
 
-✅ **Instant Access**: Retrieves relevant information in 2-4 seconds instead of 10-30 minutes of manual searching
+ **Instant Access**: Retrieves relevant information in 2-4 seconds instead of 10-30 minutes of manual searching
 
-✅ **Context-Aware**: Understands natural language questions and technical jargon alike, bridging the gap between how mechanics ask and how manuals are written
+ **Context-Aware**: Understands natural language questions and technical jargon alike, bridging the gap between how mechanics ask and how manuals are written
 
-✅ **Comprehensive Answers**: Automatically gathers related information from multiple sections and documents, providing complete context including safety warnings and torque specifications
+ **Comprehensive Answers**: Automatically gathers related information from multiple sections and documents, providing complete context including safety warnings and torque specifications
 
-✅ **Conversational Memory**: Maintains conversation context across multiple questions, allowing natural follow-up queries without repeating vehicle details
+ **Conversational Memory**: Maintains conversation context across multiple questions, allowing natural follow-up queries without repeating vehicle details
 
-✅ **Verifiable Sources**: Provides citations to exact manual sections, allowing technicians to verify information and comply with warranty requirements
+ **Verifiable Sources**: Provides citations to exact manual sections, allowing technicians to verify information and comply with warranty requirements
 
 ### Real-World Impact
 
